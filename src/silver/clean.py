@@ -1,4 +1,3 @@
-# %%
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from pyspark.sql.window import Window
@@ -11,119 +10,153 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-INPUT_PATH = "./data/bronze/order_data.csv"
-OUTPUT_PATH = "./data/silver/clean_orders"
+def clean_orders(spark: SparkSession, input_path: str, output_path: str) -> None:
+    logger.info("Starting raw data ingestion")
 
-spark = SparkSession.builder.appName("Clean Raw Data").getOrCreate()
+    df = spark.read.csv(
+        input_path,
+        header=True,
+        inferSchema=True
+    )
 
-logger.info("Starting raw data ingestion")
-df = spark.read.csv(
-    INPUT_PATH,
-    header=True,
-    inferSchema=True
-)
-logger.info("Raw data successfully loaded")
+    logger.info("Raw data successfully loaded")
 
-# %%
-# Removendo linhas duplicadas
-initial_count = df.count()
-logger.info("Removing duplicate rows based on order_id")
-df = df.drop_duplicates(subset=["order_id"])
-logger.info(
-    f"Duplicate removal completed. Rows before: {initial_count}, after: {df.count()}"
-)
+    # -----------------------------
+    # Remove duplicate rows
+    # -----------------------------
+    initial_count = df.count()
+    logger.info("Removing duplicate rows based on order_id")
 
-# %%
-# Removendo espaços em branco antes e/ou depois de nomes
-logger.info("Trimming leading and trailing whitespaces from customer_name")
-df = df.withColumn(
-    "customer_name",
-    F.trim(F.col("customer_name"))
-)
+    df = df.dropDuplicates(["order_id"])
 
-# %%
-# Imputando valores de preço pela média de cada produto sobre valores nulos(valor padrão de cada produto)
-logger.info("Imputing missing unit_price values using product-level averages")
+    logger.info(
+        f"Duplicate removal completed. Rows before: {initial_count}, after: {df.count()}"
+    )
 
-w = Window.partitionBy("product_id")
+    # -----------------------------
+    # Trim customer_name
+    # -----------------------------
+    logger.info("Trimming leading and trailing whitespaces from customer_name")
 
-df = df.withColumn(
-    "unit_price",
-    F.when(
-        F.col("unit_price").isNull(),
-        F.avg("unit_price").over(w)
-    ).otherwise(F.col("unit_price"))
-)
+    df = df.withColumn(
+        "customer_name",
+        F.trim(F.col("customer_name"))
+    )
 
-remaining_null_prices = df.where(F.col("unit_price").isNull()).count()
-logger.info(f"Remaining null unit_price values after imputation: {remaining_null_prices}")
+    # -----------------------------
+    # Impute unit_price using product-level average
+    # -----------------------------
+    logger.info("Imputing missing unit_price values using product-level averages")
 
-# %%
-# Removendo linhas com valores de quantidade fora da faixa de valores lógica
-logger.info("Removing rows with invalid quantity values (quantity < 1)")
+    w = Window.partitionBy("product_id")
 
-df = df.where(
-    F.col("quantity") >= 0,
-)
+    df = df.withColumn(
+        "unit_price",
+        F.when(
+            F.col("unit_price").isNull(),
+            F.avg("unit_price").over(w)
+        ).otherwise(F.col("unit_price"))
+    )
 
-logger.info("Invalid quantity rows removed")
+    remaining_null_prices = df.where(F.col("unit_price").isNull()).count()
+    logger.info(
+        f"Remaining null unit_price values after imputation: {remaining_null_prices}"
+    )
 
-# %%
-# Tratando datas invertidas assumindo erro do sistema de origem (swap entre order_date e shipping_date)
-logger.info(
-    "Fixing inverted dates assuming a source system error (swap between order_date and shipping_date)"
-)
+    # -----------------------------
+    # Remove invalid quantity values
+    # -----------------------------
+    logger.info("Removing rows with invalid quantity values (quantity < 1)")
 
-df = df.dropna(subset=["order_date"], how="any")
+    df = df.where(F.col("quantity") >= 1)
 
-df = df.withColumn("order_date_tmp", F.col("order_date"))
+    logger.info("Invalid quantity rows removed")
 
-# Ajusta order_date apenas se shipping_date não for nulo
-df = df.withColumn(
-    "order_date",
-    F.when(
-        (F.col("shipping_date").isNotNull()) & (F.col("order_date_tmp") > F.col("shipping_date")),
-        F.col("shipping_date")
-    ).otherwise(F.col("order_date_tmp"))
-)
+    # -----------------------------
+    # Fix inverted dates
+    # -----------------------------
+    logger.info(
+        "Fixing inverted dates assuming a source system error "
+        "(swap between order_date and shipping_date)"
+    )
 
-# Ajusta shipping_date apenas se não for nulo
-df = df.withColumn(
-    "shipping_date",
-    F.when(
-        (F.col("shipping_date").isNotNull()) & (F.col("order_date_tmp") > F.col("shipping_date")),
-        F.col("order_date_tmp")
-    ).otherwise(F.col("shipping_date"))
-).drop("order_date_tmp")
+    df = df.dropna(subset=["order_date"])
 
-logger.info("Date correction completed")
+    df = df.withColumn("order_date_tmp", F.col("order_date"))
 
-# %%
-# Padronizando e-emails
+    df = df.withColumn(
+        "order_date",
+        F.when(
+            (F.col("shipping_date").isNotNull()) &
+            (F.col("order_date_tmp") > F.col("shipping_date")),
+            F.col("shipping_date")
+        ).otherwise(F.col("order_date_tmp"))
+    )
 
-# 1. Limpeza básica
-df = df.withColumn("customer_email", F.trim(F.col("customer_email")))
-df = df.withColumn("customer_email", F.lower(F.col("customer_email")))
-df = df.withColumn("customer_email", F.regexp_replace(F.col("customer_email"), r"\s+", ""))
-df = df.withColumn("customer_email", F.regexp_replace(F.col("customer_email"), r"[^a-z0-9@._-]", ""))
-df = df.withColumn("customer_email", F.regexp_replace(F.col("customer_email"), r"@+", "@"))
+    df = df.withColumn(
+        "shipping_date",
+        F.when(
+            (F.col("shipping_date").isNotNull()) &
+            (F.col("order_date_tmp") > F.col("shipping_date")),
+            F.col("order_date_tmp")
+        ).otherwise(F.col("shipping_date"))
+    ).drop("order_date_tmp")
 
-# 2. Garantir pelo menos um ponto no domínio
-df = df.withColumn(
-    "customer_email",
-    F.when(
-        F.col("customer_email").rlike(r"@[^@]+\.[^@]+"),
-        F.col("customer_email")
-    ).otherwise(None)
-)
+    logger.info("Date correction completed")
 
-# 3. Drop linhas com emails que ainda não são válidos
-df = df.dropna(subset=["customer_email"])
-logger.info("E-mail address correction completed")
+    # -----------------------------
+    # Standardize emails
+    # -----------------------------
+    logger.info("Standardizing customer_email")
 
-# %%
-# Escrita do dataset limpo
-logger.info("Writing cleaned dataset to output path")
-df.write.mode("overwrite").csv(OUTPUT_PATH, header=True)
-logger.info(f"Cleaned dataset successfully written, total rows: {df.count()}")
-# %%
+    df = (
+        df.withColumn("customer_email", F.trim(F.col("customer_email")))
+        .withColumn("customer_email", F.lower(F.col("customer_email")))
+        .withColumn("customer_email", F.regexp_replace(F.col("customer_email"), r"\s+", ""))
+        .withColumn("customer_email", F.regexp_replace(F.col("customer_email"), r"[^a-z0-9@._-]", ""))
+        .withColumn("customer_email", F.regexp_replace(F.col("customer_email"), r"@+", "@"))
+    )
+
+    df = df.withColumn(
+        "customer_email",
+        F.when(
+            F.col("customer_email").rlike(r"@[^@]+\.[^@]+"),
+            F.col("customer_email")
+        ).otherwise(None)
+    )
+
+    df = df.dropna(subset=["customer_email"])
+
+    logger.info("E-mail address correction completed")
+
+    # -----------------------------
+    # Write cleaned data
+    # -----------------------------
+    logger.info("Writing cleaned dataset to output path")
+
+    df.write.mode("overwrite").csv(output_path, header=True)
+
+    logger.info(f"Cleaned dataset successfully written, total rows: {df.count()}")
+
+def main():
+    INPUT_PATH = "./data/bronze/order_data.csv"
+    OUTPUT_PATH = "./data/silver/clean_orders"
+
+    logger.info("Creating SparkSession")
+    spark = (
+        SparkSession.builder
+        .appName("Clean Raw Data")
+        .getOrCreate()
+    )
+
+    clean_orders(
+        spark=spark,
+        input_path=INPUT_PATH,
+        output_path=OUTPUT_PATH
+    )
+
+    spark.stop()
+
+
+if __name__ == "__main__":
+    main()
