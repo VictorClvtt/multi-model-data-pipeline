@@ -1,12 +1,30 @@
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
-import logging
+
+from datetime import datetime
 
 from src.utils.wrappers import pyspark_function_wrapper
+from src.config.logger import logger
 
-def run_gold_data_modeling(spark: SparkSession, input_path: str, output_path: str, logger):
+def run_gold_data_modeling(
+    spark: SparkSession,
+    input_path: str,
+    output_path: str,
+    logger,
+    read_from_bucket: bool=False,
+    save_to_bucket: bool=False,
+    bucket_name: str=None
+):
     logger.info("Reading clean data")
-    df = spark.read.csv(input_path, header=True, inferSchema=True)
+    
+    if read_from_bucket:
+        df = spark.read.parquet(
+            f"s3a://{bucket_name}/{input_path}",
+            header=True,
+            inferSchema=True
+        )
+    else:
+        df = spark.read.csv(input_path, header=True, inferSchema=True)
 
     logger.info("Starting gold layer data modeling for analytics")
 
@@ -194,30 +212,34 @@ def run_gold_data_modeling(spark: SparkSession, input_path: str, output_path: st
     #####################
     logger.info(f"Recording gold schema tables to {output_path}")
 
-    fact_order.write.parquet(f"{output_path}/fact_order", mode="overwrite")
-    dim_date.write.parquet(f"{output_path}/dim_date", mode="overwrite")
-    dim_order_status.write.parquet(f"{output_path}/dim_order_status", mode="overwrite")
-    dim_payment_method.write.parquet(f"{output_path}/dim_payment_method", mode="overwrite")
-    dim_product.write.parquet(f"{output_path}/dim_product", mode="overwrite")
-    dim_customer.write.parquet(f"{output_path}/dim_customer", mode="overwrite")
-    dim_location.write.parquet(f"{output_path}/dim_location", mode="overwrite")
+    if save_to_bucket:
+        base_bucket_path = f"s3a://{bucket_name}/{output_path}"
+
+        fact_order.write.parquet(f"{base_bucket_path}/fact_order", mode="overwrite")
+        dim_date.write.parquet(f"{base_bucket_path}/dim_date", mode="overwrite")
+        dim_order_status.write.parquet(f"{base_bucket_path}/dim_order_status", mode="overwrite")
+        dim_payment_method.write.parquet(f"{base_bucket_path}/dim_payment_method", mode="overwrite")
+        dim_product.write.parquet(f"{base_bucket_path}/dim_product", mode="overwrite")
+        dim_customer.write.parquet(f"{base_bucket_path}/dim_customer", mode="overwrite")
+        dim_location.write.parquet(f"{base_bucket_path}/dim_location", mode="overwrite")
+    else:
+        fact_order.write.parquet(f"{output_path}/fact_order", mode="overwrite")
+        dim_date.write.parquet(f"{output_path}/dim_date", mode="overwrite")
+        dim_order_status.write.parquet(f"{output_path}/dim_order_status", mode="overwrite")
+        dim_payment_method.write.parquet(f"{output_path}/dim_payment_method", mode="overwrite")
+        dim_product.write.parquet(f"{output_path}/dim_product", mode="overwrite")
+        dim_customer.write.parquet(f"{output_path}/dim_customer", mode="overwrite")
+        dim_location.write.parquet(f"{output_path}/dim_location", mode="overwrite")
 
     logger.info("Gold layer data modeling finished successfully")
 
 if __name__ == "__main__":
-    # Logger configuration
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        datefmt="%H:%M"
-    )
-
-    logger = logging.getLogger(__name__)
-
     pyspark_function_wrapper(
-        input_path="./data/silver/clean_orders/",
-        output_path="./data/gold",
+        input_path=f"silver/dt={datetime.today().date()}",
+        output_path="gold",
         app_name="Multi Dimensional Modelling",
         pyspark_function=run_gold_data_modeling,
-        logger=logger
+        logger=logger,
+        read_from_bucket=True,
+        save_to_bucket=True
     )

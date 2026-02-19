@@ -1,25 +1,37 @@
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from pyspark.sql.window import Window
-import logging
 
-# Logger configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+from datetime import datetime
 
-def clean_orders(spark: SparkSession, input_path: str, output_path: str) -> None:
+from src.utils.wrappers import pyspark_function_wrapper
+from src.config.logger import logger
+
+def run_silver_data_cleaning(
+    spark: SparkSession,
+    input_path: str,
+    output_path: str,
+    logger,
+    read_from_bucket: bool=False,
+    save_to_bucket: bool=False,
+    bucket_name: str=None
+) -> None:
     logger.info("Starting raw data ingestion")
 
-    df = spark.read.csv(
-        input_path,
-        header=True,
-        inferSchema=True
-    )
+    if read_from_bucket:
+        df = spark.read.csv(
+            f"s3a://{bucket_name}/{input_path}",
+            header=True,
+            inferSchema=True
+        )
+    else:
+        df = spark.read.csv(
+            input_path,
+            header=True,
+            inferSchema=True
+        )
 
-    logger.info("Raw data successfully loaded")
+    logger.info("Raw data successfully read")
 
     # -----------------------------
     # Remove duplicate rows
@@ -134,29 +146,23 @@ def clean_orders(spark: SparkSession, input_path: str, output_path: str) -> None
     # -----------------------------
     logger.info("Writing cleaned dataset to output path")
 
-    df.write.mode("overwrite").csv(output_path, header=True)
+    if save_to_bucket:
+        df.write.mode("overwrite").parquet(
+            f"s3a://{bucket_name}/{output_path}"
+        )
+    else:
+        df.write.mode("overwrite").csv(output_path, header=True)
 
     logger.info(f"Cleaned dataset successfully written, total rows: {df.count()}")
 
-def main():
-    INPUT_PATH = "./data/bronze/order_data.csv"
-    OUTPUT_PATH = "./data/silver/clean_orders"
-
-    logger.info("Creating SparkSession")
-    spark = (
-        SparkSession.builder
-        .appName("Clean Raw Data")
-        .getOrCreate()
-    )
-
-    clean_orders(
-        spark=spark,
-        input_path=INPUT_PATH,
-        output_path=OUTPUT_PATH
-    )
-
-    spark.stop()
-
 
 if __name__ == "__main__":
-    main()
+    pyspark_function_wrapper(
+        input_path="bronze/CSV/order_data.csv",
+        output_path=f"silver/dt={datetime.today().date()}",
+        app_name="Data Cleaning and Standardizing",
+        pyspark_function=run_silver_data_cleaning,
+        logger=logger,
+        read_from_bucket=True,
+        save_to_bucket=True
+    )
