@@ -1,26 +1,51 @@
 version: "3.9"
 
 services:
-    minio:
-        image: minio/minio:latest
-        container_name: minio
-        hostname: minio
-        environment:
-            MINIO_ROOT_USER: admin
-            MINIO_ROOT_PASSWORD: admin123
-        command: server /data --console-address ":9001"
-        ports:
-            - "9000:9000"
-            - "9001:9001"
-        volumes:
-            - minio-data:/data
-        networks:
-            - datalake
-        restart: unless-stopped
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    hostname: minio
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: admin123
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - datalake
+    restart: unless-stopped
+
+  postgres-dw:
+    image: postgres:16
+    container_name: postgres-dw
+    hostname: postgres-dw
+    environment:
+      POSTGRES_USER: dw_user
+      POSTGRES_PASSWORD: dw_password
+      POSTGRES_DB: dw
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-dw-data:/var/lib/postgresql/data
+    networks:
+      - datalake
+    restart: unless-stopped
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c work_mem=16MB
+      -c maintenance_work_mem=128MB
+      -c effective_cache_size=1GB
+      -c max_wal_size=1GB
+      -c checkpoint_timeout=15min
 
 volumes:
-    minio-data:
+  minio-data:
+  postgres-dw-data:
 
 networks:
-    datalake:
-        driver: bridge
+  datalake:
+    driver: bridge
