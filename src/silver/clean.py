@@ -159,7 +159,7 @@ def run_silver_data_cleaning(
 if __name__ == "__main__":
     pyspark_function_wrapper(
         input_path="bronze/CSV/order_data.csv",
-        output_path=f"silver/dt={datetime.today().date()}",
+        output_path=f"silver/obt/dt={datetime.today().date()}",
         app_name="Data Cleaning and Standardizing",
         pyspark_function=run_silver_data_cleaning,
         logger=logger,
