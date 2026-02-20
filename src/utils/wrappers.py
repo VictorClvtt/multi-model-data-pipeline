@@ -16,7 +16,7 @@ def pyspark_function_wrapper(
 ) -> None:
     logger.info("Creating SparkSession")
 
-    if save_to_bucket:
+    if save_to_bucket or read_from_bucket:
         access_key, secret_key, bucket_name, bucket_endpoint = load_env_vars()
 
         spark = (
@@ -24,7 +24,7 @@ def pyspark_function_wrapper(
             .appName(app_name)
             .config(
                 "spark.jars.packages",
-                "org.apache.hadoop:hadoop-aws:3.4.1,com.amazonaws:aws-java-sdk-bundle:1.12.698"
+                "org.apache.hadoop:hadoop-aws:3.4.1,com.amazonaws:aws-java-sdk-bundle:1.12.698,org.postgresql:postgresql:42.7.3"
             )
             .config("spark.hadoop.fs.s3a.endpoint", bucket_endpoint)
             .config("spark.hadoop.fs.s3a.access.key", access_key)
