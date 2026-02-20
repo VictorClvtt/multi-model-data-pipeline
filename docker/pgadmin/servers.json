@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "DW",
+      "Group": "Servers",
+      "Host": "postgres-dw",
+      "Port": 5432,
+      "MaintenanceDB": "dw",
+      "Username": "dw_user",
+      "SSLMode": "prefer"
+    }
+  }
+}

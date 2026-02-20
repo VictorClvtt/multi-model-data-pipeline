@@ -42,9 +42,29 @@ services:
       -c max_wal_size=1GB
       -c checkpoint_timeout=15min
 
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json
+    networks:
+      - datalake
+    depends_on:
+      - postgres-dw
+    restart: unless-stopped
+
 volumes:
   minio-data:
   postgres-dw-data:
+  pgadmin-data:
 
 networks:
   datalake:
