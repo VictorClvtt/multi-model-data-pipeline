@@ -2,8 +2,6 @@ from src.utils.wrappers import pyspark_function_wrapper
 from src.utils.spark.data_mirroring import data_mirroring
 from src.config.logger import logger
 
-from datetime import datetime
-
 if __name__ == "__main__":
     pyspark_function_wrapper(
         app_name="Silver Layer OBT Data Mirroring",
